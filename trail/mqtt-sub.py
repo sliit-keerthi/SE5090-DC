@@ -15,10 +15,11 @@ def main():
     client.connect("localhost", 6699, 60)
 
     # Subscribe to a topic
-    client.subscribe("test/topic")
+    client.subscribe("node/+")
 
     # Start the MQTT client loop
     client.loop_forever()
+
 
 if __name__ == "__main__":
     main()
