@@ -1,12 +1,16 @@
 import configparser
 import json
+import threading
 
 from dc.hasher import Hasher
 from dc.receiver import Receiver
+from dc.sidecar import Sidecar
 from dc.constants import MessageType, enum_to_json
 import random
 import hashlib
 import paho.mqtt.client as mqtt
+import logging
+
 
 config = {
     "broker": "localhost",
@@ -16,34 +20,19 @@ config = {
 }
 
 
-class Node:
+class Node(Hasher, Receiver):
     def __init__(self):
         self.node_id = None
         self.node_name = Node.generate_random_name()
+        self.leader_id = None
 
-        self.mqtt_client = Node.generate_mqtt_client()
+        self.sidecar = Sidecar(self.node_name, config['broker'], config['port'], config['callback_api_version'])
+        self.heartbeat_timer = None
 
     @staticmethod
     def generate_random_name():
         letters = 'abcdefghijklmnopqrstuvwxyz'
         return ''.join(random.choice(letters) for _ in range(5))
-
-    # create a function that returns a MQTT client
-    @staticmethod
-    def generate_mqtt_client():
-        client = mqtt.Client(callback_api_version=config["callback_api_version"])
-        client.connect(config['broker'], config['port'], config['keepalive'])
-
-        client.subscribe("node/+")
-
-        client.on_message = Node.on_message
-
-        return client
-
-    @staticmethod
-    def on_message(self, userdata, msg):
-        print(msg.topic)
-        print(msg.payload.decode())
 
     def sign_up(self):
         message = {
@@ -55,10 +44,62 @@ class Node:
 
         self.publish("node/signup", message)
 
-        self.mqtt_client.loop_forever();
+    def publish(self, topic, data):
+        self.sidecar.publish(topic, data)
 
-    def publish(self, topic, message):
-        self.mqtt_client.publish(topic, message)
+    def elect_leader(self):
+        self.broadcast_presence()
+        self.initiate_election()
+
+    def broadcast_presence(self):
+        data = {'name': f"Node_{self.node_id}", 'id': self.node_id}
+        self.sidecar.publish("nodes/announce", data)
+
+    def initiate_election(self):
+        logging.info(f"Node {self.node_id} is initiating an election.")
+        for id in range(self.node_id + 1, 5):  # Assuming 5 is the total number of nodes
+            self.sidecar.publish(f"election/{id}", {'type': 'election', 'from': self.node_id})
+
+    def handle_election_message(self, data):
+        if data['type'] == 'election':
+            logging.info(f"Node {self.node_id} received an election message from {data['from']}")
+            # Respond to show this node is alive
+            self.sidecar.publish(f"nodes/election/{data['from']}", {'type': 'response', 'from': self.node_id})
+            # Take over the election process
+            self.initiate_election()
+
+    def handle_coordinator_message(self, data):
+        self.leader_id = data['leader']
+        logging.info(f"Node {self.node_id} recognizes Node {self.leader_id} as the leader.")
+
+    def declare_as_leader(self):
+        logging.info(f"Node {self.node_id} is declaring itself as the leader.")
+        self.leader_id = self.node_id
+        self.sidecar.publish("coordinator", {'leader': self.node_id})
+
+    def check_responses(self, responses):
+        if not responses:  # If no responses from higher nodes
+            self.declare_as_leader()
+
+    def start_heartbeat_timer(self):
+        if self.heartbeat_timer:
+            self.heartbeat_timer.cancel()
+        self.heartbeat_timer = threading.Timer(10.0, self.heartbeat_expired)
+        self.heartbeat_timer.start()
+
+    def heartbeat_expired(self):
+        logging.info(f"Heartbeat expired for leader {self.leader_id}")
+        self.initiate_election()
+
+    def handle_heartbeat(self, data):
+        if data['leader'] == self.leader_id:
+            logging.info(f"Heartbeat received from leader {self.leader_id}")
+            self.start_heartbeat_timer()
+
+    def send_heartbeat(self):
+        if self.node_id == self.leader_id:
+            self.sidecar.publish("nodes/heartbeat", {'leader': self.node_id})
+            threading.Timer(5.0, self.send_heartbeat).start()
 
 
 def main():
@@ -68,129 +109,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-    #
-# Node spin up
-#     - Create new node
-#         - new name
-#     - Set parameters
-#     - broadcast new signup message
-#     - listen to response
-#         - get names/ids and store
-#     - broadcast ID
-#         - "with a ready message"
-
-# class Node(Hasher, Receiver):
-#
-#     def __init__(self, node_id, node_name):
-#         self.node_id = node_id
-#         self.node_name = node_name
-#
-#         self.node_table = {}
-#         self.value_table = {}
-#
-#         self.receiver = False
-#         self.hasher = False
-#
-#     def generate_random_name(self):
-#         letters = 'abcdefghijklmnopqrstuvwxyz'
-#         return ''.join(random.choice(letters) for _ in range(5))
-#
-#     def hash_string(self, s):
-#         return hashlib.sha1(s.encode()).hexdigest()[:10]
-#
-#     def send_broadcast_message(self, client):
-#         message = {
-#             "node_id": self.node_id,
-#             "node_name": self.node_name,
-#             "type": enum_to_json(MessageType.NEW_NODE_SUBSCRIBE),
-#             "body": "Test message"
-#         }
-#
-#         message = json.dumps(message)
-#
-#         for node_id, node_name in self.node_table.items():
-#             client.publish(f"node/{node_id}", message)
-#             print(f"Sent message to {node_name}: {message}")
-#
-#     def on_message(self, client, userdata, message):
-#         topic = message.topic
-#         payload = message.payload.decode()
-#
-#         print("Received message on topic", topic)
-#         print("Received payload", payload)
-#
-#         if topic.startswith("node/") and payload.startswith("New node joined:"):
-#             node_id = topic.split("/")[-1]
-#             self.node_table[node_id] = payload.split(": ")[1].split(" ")[0]
-#             self.send_peer_info(client, node_id)
-#
-#     def send_peer_info(self, client, node_id):
-#         client.publish(f"node/{node_id}/info", f"Node info: {self.node_name} ({self.node_id})")
-#
-#     def on_info_received(self, client, userdata, message):
-#         node_id = message.topic.split("/")[1]
-#         node_info = message.payload.decode().split(": ")[1]
-#         self.node_table[node_id] = node_info
-#
-#     def join_cluster(self, client):
-#         self.node_name = self.generate_random_name()
-#         self.node_id = random.randint(0, 4)
-#         self.send_broadcast_message(client)
-#
-#     def decide_role(self):
-#         num_nodes = len(self.node_table)
-#         if num_nodes % 2 == 0:
-#             self.hasher = True
-#         else:
-#             self.receiver = True
-#
-#     def store_data(self, key, value):
-#         self.value_table[key] = value
-#
-#     def relay_to_hasher(self, key):
-#         hasher_node_id = self.hash_string(key) % len(self.node_table)
-#         return hasher_node_id
-#
-#     def retrieve_data(self, key, client):
-#         if self.receiver:
-#             hasher_node_id = self.relay_to_hasher(key)
-#             client.publish(f"node/{hasher_node_id}/retrieve", key)
-#
-#     def on_retrieval_request(self, client, userdata, message):
-#         key = message.payload.decode()
-#         if self.hasher:
-#             if key in self.value_table:
-#                 value = self.value_table[key]
-#                 client.publish(f"node/{self.node_id}/reply", value)
-#
-#
-# def main():
-#     # Initialize MQTT client
-#     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
-#     client.connect("localhost", 6699, 60)
-#
-#     # Initialize node
-#     node = Node(0, "initial_node")
-#     node.join_cluster(client)
-#     client.subscribe("node/#")
-#     client.on_message = node.on_message
-#     client.message_callback_add("node/+/info", node.on_info_received)
-#     client.loop_start()
-#
-#     # Additional logic to handle different roles and interactions between nodes
-#     node.decide_role()
-#
-#     if node.receiver:
-#         # Implement fault tolerance and consistency algorithm for receivers
-#         pass
-#
-#     if node.hasher:
-#         # Implement hasher logic
-#         pass
-#
-#     client.disconnect()
-#
-#
-# if __name__ == "__main__":
-#     main()
