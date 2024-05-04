@@ -32,7 +32,7 @@ class Node(Hasher, Receiver):
         self.leader = None
         self.type = None
 
-        self.nodes = set()
+        self.nodes = list()
 
         self.sidecar = Sidecar(self, config['broker'], config['port'])
 
@@ -43,11 +43,11 @@ class Node(Hasher, Receiver):
 
     def get_own_data(self):
         return {
-            "node_id": self.id,
-            "node_name": self.name,
-            "node_address": str(self.sidecar.client._client_id),
-            "node_type": "follower",
-            "is_leader": False if self.leader_id is None else True
+            "id": self.id,
+            "name": self.name,
+            "address": str(self.sidecar.client._client_id),
+            "type": self.type,
+            "is_leader": True if self.leader_id == self.id else False
         }
 
     # Signup
@@ -64,39 +64,28 @@ class Node(Hasher, Receiver):
                 "name": self.name,
                 "address": str(self.sidecar.client._client_id),
                 "type": self.type,
+                "is_leader": False,
             },
         }
 
         message = json.dumps(message)
 
         self.sidecar.publish("node/signup", message)
-        # Add message handling logic here
+        
+        self.nodes.append(self.get_own_data())
 
     def on_sign_up_message(self, message):
         # skip if the request is from self
-        print("Signup request received")
-        
         if message['node_data']['name'] == self.name:
             return
 
+        message_type = MessageType[message['type']]
+        logging.info(f"Received message of type {message_type}")
+
         node_data = message['node_data']
 
-        # update the nodes list
-        existing_node = {
-            "node_id": node_data['node_id'] if 'node_id' in node_data else None,
-            "node_name": node_data['node_name'],
-            "node_address": node_data['node_address'] if 'node_address' in node_data else None,
-            "node_type": node_data['node_type'],
-        }
-        
-        self.nodes.add(existing_node)
-
-        # if the message is from a leader update leader details
-        if node_data['is_leader'] == True:
-            self.leader_id = node_data['node_id']
-            
-        # if the message is from another new node, publish own data as a response message
-        if node_data['type'] == MessageType.NEW_NODE_SIGNUP:
+        if message_type == MessageType.NEW_NODE_SIGNUP:
+            # if the message is from another new node, publish own data as a response message
             own_data = self.get_own_data()
 
             message = {
@@ -105,15 +94,53 @@ class Node(Hasher, Receiver):
             }
 
             self.sidecar.publish("node/signup", json.dumps(message))
+        elif message_type == MessageType.NEW_NODE_SIGNUP_RESPONSE:
+            logging.info(F"Response Message : {node_data}")
+            # if the message is from a leader update leader details
+            if node_data['is_leader'] == True:
+                self.leader_id = node_data['node_id']
+            
+        # update the nodes list
+        existing_node = {
+            "node_id": node_data['id'] if node_data["id"] else None,
+            "node_name": node_data['name'],
+            "node_address": node_data['address'] if 'address' in node_data else None,
+            "node_type": node_data['type'],
+            "is_leader": node_data['is_leader'],
+        }
+        
+        self.nodes.append(existing_node)
 
     def on_data_save_request(self, data):
-        pass
+        # if the self is the leader, randomly select a hasher node from the nodes list
+        # and send the data to the hasher node
+        if self.leader_id == self.id:
+            hasher_node = self.get_random_hasher()
+
+            self.sidecar.publish(f"node/hash_data/{hasher_node['node_id']}", data)
 
     def on_data_retrieve_request(self, data):
         pass
 
-    
+    def find_node_by_name(self, name):
+        for node in self.nodes:
+            if node['node_name'] == name:
+                return node
 
+        return None
+
+    def add_to_node_list(self, node_data):
+        if self.find_node_by_name(node_data['name']) is None:
+            self.nodes.append(node_data)
+
+    def get_random_hasher(self):
+        hashers = [node for node in self.nodes if node['node_type'] == "hasher"]
+        
+        if len(hashers) == 0:
+            return None
+        else:
+            return random.choice(hashers)
+               
     # Leader selection
 
     # Hasher
@@ -129,17 +156,10 @@ def main():
     # write the code for set a timer timeout of 5 seconds
     # and check the number of nodes in the network
     # if the number of nodes is less than 2, declare self as the leader
-
     time.sleep(5)
     if len(node.nodes) < 2:
         node.id = 0
         node.leader = Leader()
-
-    
-
-
-    
-
 
     while True:
         time.sleep(1)

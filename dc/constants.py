@@ -4,9 +4,10 @@ from enum import Enum, unique
 @unique
 class MessageType(Enum):
     NEW_NODE_SIGNUP = 1
+    NEW_NODE_SIGNUP_RESPONSE = 2
 
-    DATA_SAVE = 2
-    DATA_RETRIEVE = 3
+    DATA_SAVE = 3
+    DATA_RETRIEVE = 4
 
 
 def enum_to_json(value):
