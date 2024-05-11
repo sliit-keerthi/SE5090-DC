@@ -23,11 +23,11 @@ class Sidecar:
         # self.sign_up()
 
     def on_connect(self, client, userdata, flags, rc, prop):
-        logging.info(f"Sidecar connected with result code {rc}")
-        client.subscribe("node/#")
+        logging.info(f'Sidecar connected with result code {rc}')
+        client.subscribe('node/#')
 
     def on_message(self, client, userdata, msg):
-        logging.info(f"On message: {msg.topic}")
+        logging.info(f'On message: {msg.topic}')
         
         dpayload = msg.payload.decode('utf-8')
 
@@ -36,24 +36,35 @@ class Sidecar:
         if type(jpayload) == str: # if the payload is a string, after decoding.
             jpayload = json.loads(jpayload)
 
-        logging.info(F"JSON payload: [{type(jpayload)}] - {json.dumps(jpayload)}")    
+        logging.info(F'JSON payload: [{type(jpayload)}] - {json.dumps(jpayload)}')    
         
-        if(msg.topic == "node/signup"):
-            logging.info("Signup request received")
+        if(msg.topic == 'node/signup'):
+            logging.info('Signup request received')
             self.node.on_sign_up_message(jpayload)
-
-            logging.info(F"Nodes table: {self.node.nodes}")
-        elif(msg.topic == "node/save_data"):
-            logging.info("Save data request received")
+            logging.info(F'Nodes table: {self.node.nodes}')
+        if(msg.topic == 'node/signup_complete'):
+            logging.info('Signup complete request received')
+            self.node.signup_complete(jpayload)
+        elif(msg.topic == 'node/heartbeat'):
+            logging.info('Heartbeat request received')
+            self.node.on_heartbeat_message(jpayload)
+        elif(msg.topic == 'node/election'):
+            logging.info('Election request received')
+            self.node.on_election_message(jpayload)
+        elif(msg.topic == 'node/election_ok'):
+            logging.info('Election OK request received')
+            self.node.on_election_ok_message(jpayload)
+        elif(msg.topic == 'node/save_data'):
+            logging.info('Save data request received')
             self.node.on_save_data_message(jpayload)
-        elif(msg.topic == "node/get_data"):
-            logging.info("Get data request received")
+        elif(msg.topic == 'node/get_data'):
+            logging.info('Get data request received')
             self.node.on_get_data_message(jpayload)
-        elif(msg.topic == "node/hash_data"):
-            logging.info("Hashed data request received")
+        elif(msg.topic == 'node/hash_data'):
+            logging.info('Hashed data request received')
             self.node.on_hashed_data_message(jpayload)
 
     def publish(self, topic, data):
         self.client.publish(topic, json.dumps(data))
         
-        logging.info(f"Published to {topic}: {data}")
+        logging.info(f'Published to {topic}: {data}')

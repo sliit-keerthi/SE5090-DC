@@ -2,7 +2,7 @@ import paho.mqtt.client as mqtt
 
 
 def on_message(client, userdata, message):
-    print(f"Received message: {message.payload.decode()}")
+    print(f'Received message: {message.payload.decode()}')
 
 
 def main():
@@ -12,15 +12,15 @@ def main():
     client.on_message = on_message
 
     # Connect to local Mosquitto broker
-    client.connect("localhost", 6699, 60)
+    client.connect('localhost', 6699, 60)
 
     # Subscribe to a topic
-    client.subscribe("node/+")
+    client.subscribe('node/+')
 
     # Start the MQTT client loop
     client.loop_forever()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
 

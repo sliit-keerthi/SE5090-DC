@@ -6,4 +6,4 @@ class Hasher(object):
         pass
 
     def on_hash_data_message(self, data):
-        print("Hash data request received")
+        print('Hash data request received')

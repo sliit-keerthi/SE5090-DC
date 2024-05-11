@@ -1,5 +1,8 @@
 import paho.mqtt.client as mqtt
 import time
+import json
+from dc.constants import MessageType, enum_to_json
+
 
 class Node:
     def __init__(self, node_id, broker_address, broker_port=1883):
@@ -23,34 +26,34 @@ class Node:
 
     # Signup
     def sign_up(self):
-        print("calling signup message")
+        print('calling signup message')
         message = {
-            "node_name": self.node.name,
-            "type": enum_to_json(MessageType.NEW_NODE_SIGNUP)
+            'node_name': self.node.name,
+            'type': enum_to_json(MessageType.NEW_NODE_SIGNUP)
         }
 
         message = json.dumps(message)
 
-        self.publish("node/signup", message)
+        self.publish('node/signup', message)
         # Add message handling logic here
 
     def broadcast_message(self):
-        # Publish a message to the "broadcast" topic
-        self.client.publish("broadcast", f"New node joined: {self.node_id}")
+        # Publish a message to the 'broadcast' topic
+        self.client.publish('broadcast', f'New node joined: {self.node_id}')
 
     def on_connect(self, client, userdata, flags, rc):
-        print("Connected to MQTT broker with result code "+str(rc))
+        print('Connected to MQTT broker with result code '+str(rc))
         # Subscribe to relevant topics
-        client.subscribe("node/#")
+        client.subscribe('node/#')
 
     def on_message(self, client, userdata, message):
         topic = message.topic
         payload = message.payload.decode()
-        print(f"Received message on topic '{topic}': {payload}")
+        print(f'Received message on topic '{topic}': {payload}')
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     # Create a Node object and connect to the MQTT broker
-    node = Node(node_id="Node1", broker_address="localhost", broker_port=6699)
+    node = Node(node_id='Node1', broker_address='localhost', broker_port=6699)
     
     # Keep the program running to continue listening for messages
     while True:
